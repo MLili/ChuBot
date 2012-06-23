@@ -1,0 +1,7 @@
+License
+Marina Boppre
+
+LIBIERC
+SQLITE3
+
+

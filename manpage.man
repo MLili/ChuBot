@@ -1,0 +1,26 @@
+"Irc Bot" "23. Juni 2012" "Marina Boopré" "Documentation"
+
+.SH
+Name
+Irc Bot
+
+.SH
+Syntax
+/fB ... /fR
+
+.SH
+Beschreibung
+Beschreibung des Irc Bot
+
+.SH 
+Optionen
+"C": Channel
+"D": Daemon
+"H": Help
+"S": Server
+"U": Username
+
+.SH
+Autor
+Marina Boppré
+
