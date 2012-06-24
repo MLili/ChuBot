@@ -13,6 +13,7 @@ char* Server;
 char* UserName;
 char* Channel;
 char* Passwort;
+
 bool Daemon, Help;
 
 int main(int argc, char** argv)
@@ -57,4 +58,31 @@ void Hilfe()
 	printf("\t-u irc UserName	Beispiel: -u Chu\n\n");
 	printf("\t-d Den irc nicht als Daemon starten!\n");
 	printf("\t-h Diese Nachricht erneut anzeigen.\n");
+}
+
+void Mondae()
+{
+	pid_t pid, sid;
+	if(getppid() == 1) 
+		return;
+
+	pid = fork();
+	if(pid < 0)
+		exit (1);
+
+	if(pid > 0)
+		exit (0);
+
+	umask(0);
+
+	sid = setsid();
+	if(sid < 0)
+		exit(1);
+
+	if((chdir("/") < 0))
+		exit(1);
+
+	freopen("/dev/null", "r", stdin);
+	freopen("/dev/null", "w", stdout);
+	freopen("/dev/null", "w", stderr);
 }
