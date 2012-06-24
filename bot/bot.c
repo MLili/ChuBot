@@ -9,10 +9,24 @@
 #include "bot.h"
 
 struct sqlite3* Database;
+irc_session_t *s;
+FILE *log_file;
+
 char* Server;
 char* UserName;
 char* Channel;
 char* Passwort;
+
+irc_callbacks_t Callbacks;
+irc_ctx_t ctx;
+
+static char global_origin[50];
+
+typedef struct
+{
+  char* channel;
+  char* nick;
+}
 
 bool Daemon, Help;
 
@@ -22,6 +36,40 @@ int main(int argc, char** argv)
 	printf("%s, %s, %s, %s, %i", Server, UserName, Channel, Passwort, Daemon);
 	if(Help)
 		return 0;
+
+	if(Server == null || Channel == null || UserName == null || Passwort == null)
+		Hilfe();
+
+	sqlite3_open("bot_db.db", Database);
+
+	memset($Callbacks, 0, sizeof(Callbacks));
+
+	InitBot();
+
+	ctx.channel  = Channel;
+	ctx.nick     = UserName;
+	ctx.password = Password;
+
+	s = irc_create_session(&callbacks);
+	if (!s)	
+	{
+		printf("Fehler bei der Koniguration der Sitzung!\n");
+		return 1;
+	}
+
+	irc_set_ctx(s, &ctx);
+	irc_option_set(s, LIBIRC_OPTION_STRIPNICKS);
+
+	// Verbindung mit den server aufbauen
+	if ( irc_connect(s, server, 6667, 0, username, 0, 0))
+	{
+		printf("Konnte keine Verbindung zum Server aufbauen...	\n");
+		return 1;
+	}
+
+	irc_run(s);
+
+	return 0;
 }
 
 void ParseOptions(int argc, char** argv)
@@ -85,4 +133,127 @@ void Mondae()
 	freopen("/dev/null", "r", stdin);
 	freopen("/dev/null", "w", stdout);
 	freopen("/dev/null", "w", stderr);
+}
+
+void InitBot()
+{
+	Callbacks.event_connect = event_connect;
+	Callbacks.event_primsg  = event_primsg;
+	Callbacks.event_nick	= event_nick;
+	Callbacks.event_join	= event_join;
+	Callbacks.event_part	= event_part;
+	Callbacks.event_topic 	= event_topic;
+	Callbacks.event_channel	= event_channel;
+}
+
+void event_connect (irc_session_t* session, const char* event, const char* origin, const char** params, unsigned int count)
+{
+	irc_ctx_t* ctx = (irc_ctx_t*) irc_get_ctx(session);
+	irc_cmd_join (session, ctx->channel, 0); 
+}
+
+void event_privmsg (irc_session_t* session, const char* event, const char* origin, const char** params, unsigned int count) 
+{
+	printf("'%s' sagte '%s' zu dir\n", origin, params[1]);	
+	if (strcmp(params[1],"-hallo")==0)	
+	{
+		printf("Ich reagiere auf Private Messages\n");
+		irc_cmd_msg(session, origin, "Ich reagiere auf private Nachrichten");		
+	}
+	
+	if (strcmp(params[1],"-login")==0)	
+	{
+		strcpy(global_origin, origin);		
+		sqlite3_exec(Database, "Select partdate From join_irc Order by rowid desc limit 1",SQLCallback,0,0);		
+		printf(global_origin);		
+		fflush(stdout);
+	}
+	
+	if (strcmp(params[1],"-help")==0)
+	{	
+		irc_cmd_msg(session, origin, "-hallo  : Statusmeldung zurück");
+		irc_cmd_msg(session, origin, "-login  : Tage auslesen");
+		irc_cmd_msg(session, origin, "-help   : Diese Nachricht anzeigen");
+		irc_cmd_msg(session, origin, "-logfile: Erstellt die Log Datei");
+	}
+	
+	if (strcmp(params[1],"-logfile")==0)
+	{
+		log_file = fopen("log.txt", "w");
+		sqlite3_exec(Database, "Select * From join_irc",SQLCallback_File,0,0);
+		fclose(log_file);			
+	}
+		
+}
+
+void event_nick (irc_session_t * session, const char * event, const char * origin, const char ** params, unsigned int count)
+{
+	Com_Printf("IRC: Nick event, from %s to %s\n", params[0], params[1]);
+}
+
+void event_join (irc_session_t* session, const char* event, const char* origin, const char** params, unsigned int count)
+{    
+	irc_cmd_msg (session, params[0], "Bot geladen");  
+	char str_join[200];  
+	sprintf(str_join, "INSERT INTO join_irc (Channel, User, Joindate, Jointime) Values ('%s', '%s', date('now'), time('now'))",params[0], origin);  
+	sqlite3_exec(Database, str_join,0,0,0);  
+	printf("User: '%s', hat sich angemeldet\n",origin);
+}
+
+void event_part (irc_session_t* session, const char* event, const char* origin, const char** params, unsigned int count)
+{
+	char str_quit[500];
+	printf("User: '%s', hat sich abgemeldet\n", origin);	
+	sprintf(str_quit, "INSERT INTO part_irc (user, channel, reason, partdate, parttime) VALUES('%s', '%s', '%s', date('now'), time('now'))",origin, params[0], params[1]);
+	sqlite3_exec(Database, str_quit,0,0,0);	
+}
+
+void event_topic(irc_session_t * session, const char * event, const char * origin, const char ** params, unsigned int count)
+{
+	if (count > 1) 
+	{
+		Com_Printf("IRC: %s changes topic on %s to %s\n", origin, params[0], params[1]);
+	}
+	else 
+	{
+		Com_Printf("IRC: %s changes topic on %s\n", origin, params[0]);
+	}
+}
+
+void event_channel (irc_session_t* session, const char* event, const char* origin, const char** params, unsigned int count)
+{
+	char str_insert[10000];	
+	sprintf(str_insert, "INSERT INTO log_irc (User, Channel, Message, InsertDate, InsertTime) Values ('%s', '%s', '%s', date('now'), time('now'))", origin, params[0], params[1]);
+	sqlite3_exec(Database, str_insert,0,0,0);
+	printf ("'%s' hat im Channel %s gesagt: %s\n", 
+	origin ? origin : "Einer vom channel", 
+	params[0], params[1]);	
+}
+
+static int SQLCallback(void *NotUsed, int argc, char **argv, char **azColName) 
+{
+	int i; 
+	for(i=0; i<argc; i++) 
+	{ 	
+		char str_sql[500];	
+		sprintf(str_sql,"%s : %s\n", azColName[i], argv[i] ? argv[i] : "NULL"); 	
+		irc_cmd_msg(s, global_origin, str_sql);
+	} 
+
+	printf("\n"); 
+	fflush(stdout);
+	return 0; 
+}	
+
+static int SQLCallback_File(void *NotUsed, int argc, char **argv, char **azColName) 
+{
+	int i;   
+	for(i=0; i<argc; i++)
+	{ 	
+		fprintf(log_file, "%s : %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+		printf("%s : %s\n", azColName[i], argv[i] ? argv[i] : "NULL");	
+	} 
+
+	printf("\n");
+	return 0; 
 }
