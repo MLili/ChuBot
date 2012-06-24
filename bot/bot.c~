@@ -8,12 +8,6 @@
 #include <stdbool.h>
 #include "bot.h"
 
-
-/**
- * Bot - Made by Marina Boppré
- */
-
-
 struct sqlite3* Database;
 irc_session_t *s;
 FILE *log_file;
